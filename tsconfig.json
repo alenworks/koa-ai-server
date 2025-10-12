@@ -1,16 +1,18 @@
 {
-  // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
-    "module": "NodeNext", // 设置为 NodeNext，符合 Node.js 的模块规范
-    "moduleResolution": "NodeNext", // 确保模块解析方式与 NodeNext 一致
-    "target": "ESNext", // 目标版本可以根据需求调整，推荐使用 ESNext 或 ES6
-    "esModuleInterop": true, // 可选，确保能够正确处理 CommonJS 和 ES 模块的兼容
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "types": [],
+    "esModuleInterop": true,
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"] // 将 '@' 映射到 'src' 目录
-    }
+      "@/*": ["src/*"]
+    },
+    "rootDir": "src",      // 指定源码目录
+    "outDir": "dist"       // 指定编译输出目录
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules"]
 }
