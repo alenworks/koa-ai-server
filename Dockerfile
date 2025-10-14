@@ -38,7 +38,7 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /usr/src/app/dist ./dist
 
 # 复制必要的静态文件或配置文件（如 .env）
-COPY --from=builder /usr/src/app/.env ./
+# COPY --from=builder /usr/src/app/.env ./
 
 # 创建非 root 用户
 RUN addgroup -S app && adduser -S -G app app \
