@@ -1,0 +1,46 @@
+name: Deploy Koa API (staging)
+
+on:
+  push:
+    branches:
+      - test-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t koa-ai-server:staging .
+
+      - name: Save and send image to server
+        env:
+          HOST: ${{ secrets.ECS_IP }}
+          USER: ${{ secrets.ECS_USER }}
+          SSH_KEY: ${{ secrets.ECS_RSA }}
+        run: |
+          echo "$SSH_KEY" > private_key && chmod 600 private_key
+          docker save koa-ai-server:staging | bzip2 | \
+            ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${HOST} \
+            "bunzip2 | docker load"
+
+      - name: Restart container remotely
+        env:
+          HOST: ${{ secrets.ECS_IP }}
+          USER: ${{ secrets.ECS_USER }}
+          SSH_KEY: ${{ secrets.ECS_RSA }}
+        run: |
+          echo "$SSH_KEY" > private_key && chmod 600 private_key
+          ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${HOST} '
+            docker compose -f /root/docker-compose.staging.yml up -d koa-ai-server
+          '
+
+      - name: Success
+        run: echo "✅ Koa API deployed successfully!"
