@@ -3,49 +3,156 @@
  */
 import OpenAI from "openai";
 import { sendSSE } from "@/utils/sse";
+import { config } from "@/config";  // 根据你的路径调整
+
 const openai = new OpenAI({
-  // 若没有配置环境变量，请用百炼API Key将下行替换为：apiKey: "sk-xxx",
-  // apiKey: process.env.OPENAI_API_KEY, // 如何获取API Key：https://help.aliyun.com/zh/model-studio/developer-reference/get-api-key
-  apiKey: process.env.OPENAI_API_KEY || "",
+  apiKey: config.openaiKey || "",
   baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
 });
 
+interface Message {
+  role: "user" | "assistant" | "system";
+  content: string;
+  name?: string;
+}
+
+interface Usage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
+interface DeepseekOptions {
+  res?: any;          // 如果传入 res 就做 SSE 流式
+  stream?: boolean;   // 是否启用流式
+}
+
+interface DeepseekResponse {
+  content: string;
+  usage?: Usage | null;
+}
+
+/**
+ * deepseekClient 支持两种模式：
+ * 1. stream + res => SSE 流式返回
+ * 2. 非流式 => 返回完整 content 和 usage
+ */
 export async function deepseekClient(
-  messages: {
-    role: "user" | "assistant" | "system";
-    content: string; // 必须的！
-    name?: string; // 可选的，一般用于区分不同用户（多用户聊天等场景，很少用）
-  }[],
-  res: any
-) {
+  messages: Message[],
+  options: DeepseekOptions = {}
+): Promise<DeepseekResponse | void> {
+  const { res, stream = false } = options;
+
+  let totalUsage: Usage | null = null;
+  let fullContent = "";
+
   try {
-    const stream = await openai.chat.completions.create({
+    const responseStream = await openai.chat.completions.create({
       model: "deepseek-v3",
-      messages: messages,
-      stream: true,
+      messages,
+      stream: stream,
       stream_options: { include_usage: true },
     });
 
-    console.log("\n" + "=".repeat(20) + "思考过程" + "=".repeat(20) + "\n");
+    if (stream && res) {
+      // -------------------- 流式 SSE --------------------
+      console.log("\n" + "=".repeat(20) + "🧠 思考过程（SSE）" + "=".repeat(20) + "\n");
 
-    // 打印 stream
-    for await (const chunk of stream) {
-    const { choices = [], usage } = chunk
+      // 检查返回值是否为异步可迭代对象（stream）
+      const isAsyncIterable = responseStream && typeof (responseStream as any)[Symbol.asyncIterator] === "function";
 
-    if (choices.length === 0) {
-      console.log('usage ', usage) // 格式如 {"prompt_tokens":81,"completion_tokens":23,"total_tokens":104}
-    }
-      const content = chunk.choices[0]?.delta?.content;
-      if (content && content.trim() !== "") {
-        //避免纯空白字符
-        process.stdout.write(content);
-        sendSSE(res, { content });
+      if (isAsyncIterable) {
+        for await (const chunk of responseStream as AsyncIterable<any>) {
+          const { choices = [], usage } = chunk;
+
+          if (usage) totalUsage = usage;
+
+          const content = choices[0]?.delta?.content ?? choices[0]?.text ?? choices[0]?.message?.content;
+          if (content && content.trim() !== "") {
+            process.stdout.write(content);
+            sendSSE(res, { content });
+          }
+        }
+      } else {
+        // 如果 SDK 在某些情况下返回非流式的完整完成对象，作兼容处理
+        const completion = responseStream as any;
+        const { choices = [], usage } = completion || {};
+        if (usage) totalUsage = usage;
+
+        const content = choices[0]?.message?.content ?? choices[0]?.text ?? "";
+        if (content && content.trim() !== "") {
+          process.stdout.write(content);
+          sendSSE(res, { content });
+        }
       }
+
+      // 流结束发送 token usage
+      if (totalUsage) {
+        console.log("\n📊 Token 使用情况:", totalUsage);
+        sendSSE(res, {
+          event: "usage",
+          data: {
+            prompt_tokens: totalUsage.prompt_tokens,
+            completion_tokens: totalUsage.completion_tokens,
+            total_tokens: totalUsage.total_tokens,
+          },
+        });
+      }
+
+      // // 最终返回 token 消耗给前端
+      // sendSSE(res, {
+      //   event: "end",
+      //   data: { usage: totalUsage },
+      // });
+
+      res.end();
+
+    } else {
+      // -------------------- 非流式 --------------------
+      console.log("\n" + "=".repeat(20) + "🧠 思考过程（非流式）" + "=".repeat(20) + "\n");
+
+      const isAsyncIterable = responseStream && typeof (responseStream as any)[Symbol.asyncIterator] === "function";
+
+      if (isAsyncIterable) {
+        for await (const chunk of responseStream as AsyncIterable<any>) {
+          const { choices = [], usage } = chunk;
+          if (usage) totalUsage = usage;
+
+          const content = choices[0]?.delta?.content ?? choices[0]?.text ?? choices[0]?.message?.content;
+          if (content) {
+            fullContent += content;
+            process.stdout.write(content);
+          }
+        }
+      } else {
+        // 非流式返回的完整完成结果，直接读取一次
+        const completion = responseStream as any;
+        const { choices = [], usage } = completion || {};
+        if (usage) totalUsage = usage;
+
+        const contentPiece = choices
+          .map((c: any) => c.message?.content ?? c.text ?? c.delta?.content ?? "")
+          .join("");
+        if (contentPiece) {
+          fullContent += contentPiece;
+          process.stdout.write(contentPiece);
+        }
+      }
+
+      return {
+        content: fullContent,
+        usage: totalUsage,
+      };
     }
+
   } catch (error) {
-    console.error("Error:", error);
-  } finally {
-    res.end();
+    console.error("Error in deepseekClient:", error);
+
+    if (stream && res) {
+      sendSSE(res, { error: "服务器内部错误" });
+      res.end();
+    } else {
+      throw error;
+    }
   }
 }
-console.log("go...");
