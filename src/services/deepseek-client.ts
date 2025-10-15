@@ -4,7 +4,7 @@
 import OpenAI from "openai";
 import { sendSSE } from "@/utils/sse";
 import { config } from "@/config";  // 根据你的路径调整
-
+import * as logger from "@/utils/logger";
 const openai = new OpenAI({
   apiKey: config.openaiKey || "",
   baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -147,8 +147,10 @@ export async function deepseekClient(
 
   } catch (error) {
     console.error("Error in deepseekClient:", error);
+    logger.error("deepseekClient error", { error });
 
     if (stream && res) {
+      logger.streamLog(res, "服务器内部错误", "error");
       sendSSE(res, { error: "服务器内部错误" });
       res.end();
     } else {
