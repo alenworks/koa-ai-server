@@ -23,12 +23,18 @@ export async function deepseekClient(
       model: "deepseek-v3",
       messages: messages,
       stream: true,
+      stream_options: { include_usage: true },
     });
 
     console.log("\n" + "=".repeat(20) + "思考过程" + "=".repeat(20) + "\n");
 
     // 打印 stream
     for await (const chunk of stream) {
+    const { choices = [], usage } = chunk
+
+    if (choices.length === 0) {
+      console.log('usage ', usage) // 格式如 {"prompt_tokens":81,"completion_tokens":23,"total_tokens":104}
+    }
       const content = chunk.choices[0]?.delta?.content;
       if (content && content.trim() !== "") {
         //避免纯空白字符
