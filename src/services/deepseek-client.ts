@@ -4,7 +4,7 @@
 import OpenAI from "openai";
 import { sendSSE } from "@/utils/sse";
 import { config } from "@/config";  // 根据你的路径调整
-import * as logger from "@/utils/logger";
+import * as logger from '../middlewares/logger';
 const openai = new OpenAI({
   apiKey: config.openaiKey || "",
   baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
