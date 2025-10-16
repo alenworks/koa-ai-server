@@ -1,6 +1,6 @@
 import Router from "koa-router";
 
-const router = new Router({ prefix: "/api" });
+const router = new Router();
 
 /**
  * ✅ 测试接口：用来检查 Koa 是否正常运行

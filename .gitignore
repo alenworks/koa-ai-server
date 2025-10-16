@@ -1,3 +1,5 @@
 **/node_modules
 .env
 dist
+# 忽略日志文件夹及其中所有文件
+logs/*
