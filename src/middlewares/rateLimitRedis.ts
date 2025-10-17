@@ -7,7 +7,7 @@ const isDev = process.env.NODE_ENV === "development";
 // ✅ 内存版限流（开发模式用）
 const memoryCache = new Map<string, { count: number; lastReset: number }>();
 const WINDOW_SIZE = 60; // 秒
-const MAX_REQUESTS = 1;
+const MAX_REQUESTS = 4;
 
 // ✅ Redis 连接（测试 / 生产使用）
 let redis: Redis | null = null;
