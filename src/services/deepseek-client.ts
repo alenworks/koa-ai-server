@@ -95,6 +95,7 @@ export async function deepseekClient(
             prompt_tokens: totalUsage.prompt_tokens,
             completion_tokens: totalUsage.completion_tokens,
             total_tokens: totalUsage.total_tokens,
+            model:' deepseek-v3',
           },
         });
       }
