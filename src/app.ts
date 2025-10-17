@@ -42,7 +42,11 @@ app.use(router.allowedMethods());
 
 // ------------------------ 全局未捕获异常 ------------------------
 logger.handleProcessErrors();
-
+app.use(async (ctx, next) => {
+  console.log('收到请求:', ctx.method, ctx.url)
+  await next()
+  console.log('响应状态:', ctx.status)
+})
 // ------------------------ 启动服务 ------------------------
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
