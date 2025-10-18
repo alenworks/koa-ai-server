@@ -13,7 +13,7 @@ const MAX_REQUESTS = 4;
 let redis: Redis | null = null;
 
 if (!isDev) {
-  redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
+  redis = new Redis(process.env.REDIS_URL  || "redis://localhost:6379", {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
   });
