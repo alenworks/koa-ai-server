@@ -7,7 +7,7 @@ import { sendSSE } from '@/utils/sse';
 import * as rfs from 'rotating-file-stream';
 
 // ------------------------ 日志目录 ------------------------
-const logDir = path.join(__dirname, '../logs');
+const logDir = path.resolve(process.cwd(), 'logs');
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
 
 // ------------------------ 文件流 ------------------------
