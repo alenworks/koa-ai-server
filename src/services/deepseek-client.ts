@@ -1,14 +1,7 @@
-/**
- * @description deepseek demo https://www.deepseek.com/
- */
 import OpenAI from "openai";
 import { sendSSE } from "@/utils/sse";
-import { config } from "@/config";  // 根据你的路径调整
+import { config } from "@/config";  
 import * as logger from '../middlewares/logger';
-const openai = new OpenAI({
-  apiKey: config.openaiKey || "",
-  baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-});
 
 interface Message {
   role: "user" | "assistant" | "system";
@@ -23,8 +16,8 @@ interface Usage {
 }
 
 interface DeepseekOptions {
-  res?: any;          // 如果传入 res 就做 SSE 流式
-  stream?: boolean;   // 是否启用流式
+  res?: any;
+  stream?: boolean;
 }
 
 interface DeepseekResponse {
@@ -32,40 +25,67 @@ interface DeepseekResponse {
   usage?: Usage | null;
 }
 
-/**
- * deepseekClient 支持两种模式：
- * 1. stream + res => SSE 流式返回
- * 2. 非流式 => 返回完整 content 和 usage
- */
+// -------------------- API Key 管理器 --------------------
+class ApiKeyManager {
+  private keys: string[];
+  private currentIndex = 0;
+
+  constructor(keys: string[]) {
+    if (!keys.length) throw new Error("No API keys provided");
+    this.keys = keys;
+  }
+
+  getCurrentKey() {
+    return this.keys[this.currentIndex];
+  }
+
+  switchKey(reason?: string) {
+    const failedKey = this.keys[this.currentIndex];
+    console.warn(`❌ API Key ${failedKey.slice(0, 10)}... 失效: ${reason || '未知原因'}`);
+    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+    console.log(`⚙️ 切换到备用 API Key: ${this.keys[this.currentIndex].slice(0, 10)}...`);
+  }
+}
+
+// 初始化 KeyManager
+const apiKeyManager = new ApiKeyManager([config.openaiKeys]);
+
+// -------------------- deepseekClient --------------------
 export async function deepseekClient(
   messages: Message[],
   options: DeepseekOptions = {}
 ): Promise<DeepseekResponse | void> {
   const { res, stream = false } = options;
-
   let totalUsage: Usage | null = null;
   let fullContent = "";
 
-  try {
-    const responseStream = await openai.chat.completions.create({
+  async function callOpenAI(): Promise<any> {
+    const key = apiKeyManager.getCurrentKey();
+    const openai = new OpenAI({
+      apiKey: key,
+      baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    });
+
+    return openai.chat.completions.create({
       model: "deepseek-v3",
       messages,
       stream: stream,
       stream_options: { include_usage: true },
     });
+  }
+
+  try {
+    const responseStream = await callOpenAI();
 
     if (stream && res) {
-      console.log("\n" + "=".repeat(20) + "🧠 思考过程（SSE）" + "=".repeat(20) + "\n");
-
       const isAsyncIterable = responseStream && typeof (responseStream as any)[Symbol.asyncIterator] === "function";
 
       if (isAsyncIterable) {
         for await (const chunk of responseStream as AsyncIterable<any>) {
           const { choices = [], usage } = chunk;
           if (usage) totalUsage = usage;
-
           const content = choices[0]?.delta?.content ?? choices[0]?.text ?? choices[0]?.message?.content;
-          if (content && content.trim() !== "") {
+          if (content?.trim()) {
             fullContent += content;
             process.stdout.write(content);
             sendSSE(res, { process: "message", content });
@@ -75,18 +95,15 @@ export async function deepseekClient(
         const completion = responseStream as any;
         const { choices = [], usage } = completion || {};
         if (usage) totalUsage = usage;
-
         const content = choices[0]?.message?.content ?? choices[0]?.text ?? "";
-        if (content && content.trim() !== "") {
+        if (content?.trim()) {
           fullContent += content;
           process.stdout.write(content);
           sendSSE(res, { process: "message", content });
         }
       }
 
-      // 先发送 token usage
       if (totalUsage) {
-        console.log("\n📊 Token 使用情况:", totalUsage);
         sendSSE(res, {
           process: "usage",
           data: {
@@ -95,50 +112,51 @@ export async function deepseekClient(
             total_tokens: totalUsage.total_tokens,
             model: "deepseek-v3",
           },
-        },'usage');
+        }, 'usage');
       }
 
-      // 最后发送 done 事件
-      sendSSE(res, { process: "done", content: fullContent },"done");
-
+      sendSSE(res, { process: "done", content: fullContent }, "done");
       res.end();
     } else {
-      // -------------------- 非流式 --------------------
-      console.log("\n" + "=".repeat(20) + "🧠 思考过程（非流式）" + "=".repeat(20) + "\n");
-
       const isAsyncIterable = responseStream && typeof (responseStream as any)[Symbol.asyncIterator] === "function";
 
       if (isAsyncIterable) {
         for await (const chunk of responseStream as AsyncIterable<any>) {
           const { choices = [], usage } = chunk;
           if (usage) totalUsage = usage;
-
-          const content = choices[0]?.delta?.content ?? choices[0]?.text ?? choices[0]?.message?.content;
-          if (content) fullContent += content;
+          fullContent += choices[0]?.delta?.content ?? choices[0]?.text ?? choices[0]?.message?.content ?? "";
         }
       } else {
         const completion = responseStream as any;
         const { choices = [], usage } = completion || {};
         if (usage) totalUsage = usage;
-
-        const contentPiece = choices
-          .map((c: any) => c.message?.content ?? c.text ?? c.delta?.content ?? "")
-          .join("");
-        if (contentPiece) fullContent += contentPiece;
+        fullContent = choices.map((c: any) => c.message?.content ?? c.text ?? c.delta?.content ?? "").join("");
       }
 
       return { content: fullContent, usage: totalUsage };
     }
-  } catch (error) {
-    console.error("Error in deepseekClient:", error);
-    logger.error("deepseekClient error", { error });
+  } catch (err: any) {
+    const message = err?.message || "";
+    logger.error("deepseekClient error", { error: err });
+
+    // 识别 API Key 相关错误，自动切换并重试一次
+    if (
+      message.includes("401") ||
+      message.includes("invalid_api_key") ||
+      message.includes("rate limit") ||
+      message.includes("429")
+    ) {
+      apiKeyManager.switchKey(message);
+      console.log("⚡ 正在使用备用 Key 重试...");
+      return deepseekClient(messages, options); // 递归重试
+    }
 
     if (stream && res) {
       logger.streamLog(res, "服务器内部错误", "error");
       sendSSE(res, { process: "error", content: "服务器内部错误" }, "error");
       res.end();
     } else {
-      throw error;
+      throw err;
     }
   }
 }

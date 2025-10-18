@@ -13,4 +13,27 @@ router.post("/chat/stream",rateLimitRedis, async (ctx) => {
   await chatHandler(ctx);
 });
 
+// 🩺 健康检测接口（不消耗 token）
+router.get("/health", (ctx) => {
+  ctx.body = {
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  };
+});
+
+// 🧠 深度检测接口
+router.get("/deepcheck", async (ctx) => {
+  try {
+    // 注意：这会真正调用 AI，一般建议低频触发
+    const result = await chatHandler([
+      { role: "user", content: "ping" },
+    ]);
+    ctx.body = { status: "ok", result };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { status: "error", message: String(err) };
+  }
+});
+
 export default router;

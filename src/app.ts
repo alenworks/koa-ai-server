@@ -5,7 +5,7 @@ import router from './routes';
 import * as logger from './middlewares/logger';
 import { errorHandler } from './middlewares/errorHandler';
 import { useSecurity } from './middlewares/security';
-
+import { HealthMonitor } from "./services/healthMonitor";
 const app = new Koa();
 
 // ------------------------ 全局错误捕获 ------------------------
@@ -52,5 +52,17 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   logger.info(`🚀 Koa 服务运行在 http://localhost:${PORT}`);
 });
+// 启动健康监控模块
+// 启动健康监控模块
+const monitor = new HealthMonitor({
+  url: "http://localhost:3001/api/ai/health",
+  interval: "*/5 * * * *", // 每5分钟检测一次
+  failThreshold: 2,         // 连续2次失败才报警
+  toEmail: process.env.MONITOR_EMAIL!,
+  serviceName: "AI Chat Service",
+});
+
+monitor.start();
+
 
 export default app;
