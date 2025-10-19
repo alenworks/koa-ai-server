@@ -1,3 +1,4 @@
+// src/services/deepseekClient.ts
 import OpenAI from "openai";
 import { sendSSE } from "@/utils/sse";
 import { config } from "@/config";  
@@ -48,12 +49,13 @@ class ApiKeyManager {
 }
 
 // 初始化 KeyManager
-const apiKeyManager = new ApiKeyManager([config.openaiKeys]);
+const apiKeyManager = new ApiKeyManager(config.openaiKeys.split(',').map(k => k.trim()).filter(k => k));
 
 // -------------------- deepseekClient --------------------
 export async function deepseekClient(
   messages: Message[],
-  options: DeepseekOptions = {}
+  options: DeepseekOptions = {},
+  retryCount = 0
 ): Promise<DeepseekResponse | void> {
   const { res, stream = false } = options;
   let totalUsage: Usage | null = null;
@@ -77,6 +79,7 @@ export async function deepseekClient(
   try {
     const responseStream = await callOpenAI();
 
+    // --- 流式处理 ---
     if (stream && res) {
       const isAsyncIterable = responseStream && typeof (responseStream as any)[Symbol.asyncIterator] === "function";
 
@@ -117,7 +120,9 @@ export async function deepseekClient(
 
       sendSSE(res, { process: "done", content: fullContent }, "done");
       res.end();
-    } else {
+    } 
+    // --- 非流式处理 ---
+    else {
       const isAsyncIterable = responseStream && typeof (responseStream as any)[Symbol.asyncIterator] === "function";
 
       if (isAsyncIterable) {
@@ -139,16 +144,18 @@ export async function deepseekClient(
     const message = err?.message || "";
     logger.error("deepseekClient error", { error: err });
 
-    // 识别 API Key 相关错误，自动切换并重试一次
+    // 只对 API Key 相关错误进行切换和重试
     if (
-      message.includes("401") ||
-      message.includes("invalid_api_key") ||
-      message.includes("rate limit") ||
-      message.includes("429")
+      retryCount < 1 && (
+        message.includes("401") ||
+        message.includes("invalid_api_key") ||
+        message.includes("rate limit") ||
+        message.includes("429")
+      )
     ) {
       apiKeyManager.switchKey(message);
-      console.log("⚡ 正在使用备用 Key 重试...");
-      return deepseekClient(messages, options); // 递归重试
+      console.log("⚡ 使用备用 Key 重试...");
+      return deepseekClient(messages, options, retryCount + 1);
     }
 
     if (stream && res) {
